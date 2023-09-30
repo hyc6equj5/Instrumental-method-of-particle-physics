@@ -1,0 +1,131 @@
+/* 
+ *  Instrumental methods of particle physics
+ *  2023.06.11  Hsiang-Yu Chen   
+ *  muon trigger counts & temp & pressure & alt.  
+ *  
+ *  Reference: Prof. Nam's lecture slides & https://toptechboy.com/arduino-lesson-21-log-sensor-data-to-an-sd-card/
+*/
+#include<SD.h>      //for SD card library
+#include<SPI.h>     //for SPI communication 
+
+#include <Wire.h>   //import the wire library to talk with I2C
+#include <Adafruit_BMP280.h>   //pressure sensor library
+
+byte input_pin_status;   // a variable to short hit pattern
+unsigned long muon_OR_counts = 0;   //OR counts
+unsigned long muon_AND_counts = 0;  //AND counts
+unsigned long muon_ch1_counts = 0;  //Counts when Ch1 hit
+unsigned long muon_ch2_counts = 0;  //Counts when Ch2 hit
+
+int i= 0;  
+bool in_ch1= 0; 
+bool in_ch2= 0; 
+bool in_AND= 0;
+
+Adafruit_BMP280 bmp;   //I2C for pressure sensor, creating sensor object "bmp"
+
+
+int chipSelect= 4; //Set chipSelect= 4
+File bmpData; //variables for working with our file object 
+
+
+void setup() {
+  // put your setup code here, to run once:
+  Serial.begin(9600); 
+  pinMode(5,INPUT); 
+  pinMode(6,INPUT); 
+  pinMode(2,INPUT);
+  pinMode(10,OUTPUT);
+  attachInterrupt(digitalPinToInterrupt(2),trigger,RISING);
+  
+  SD.begin(chipSelect);   //Initialize the SD card with chipSelect connected to pin4
+  
+
+  if(!bmp.begin(0x76, BMP280_CHIPID)){ //for sensor address 0x76
+  // if(!bmp.begin())  // for default sesnor address 0x77
+    Serial.println(F("Could not find a valid BMP280 sensor, check wiring or"
+                   "try a different address" ));
+    while (1) delay(10);
+    }
+
+  Serial.println("Halo MUON!");
+  Serial.println("DAQ alert! Reports will be given at every min.");
+
+}
+
+
+void loop() {
+  // put your main code here, to run repeatedly:
+
+  bmpData= SD.open("pr611.txt",FILE_WRITE);  //Open PTData.txt on the SD card as a file to write to  /*revise filename! */
+
+  if(bmpData){    //only if data file opened successfully
+  Serial.print(" Temp = ");
+  Serial.print(bmp.readTemperature());
+  Serial.println(" *C");
+
+  Serial.print(" Press. = ");
+  Serial.print(bmp.readPressure());
+  Serial.println(" Pa");
+
+
+  Serial.print(" Aprx alt = ");
+  Serial.print(bmp.readAltitude(1003.9));  /*Adjust to local forecast  https://www.cwb.gov.tw/V8/C/W/OBS_County.html?ID=10020 */
+  Serial.println(" m");
+
+  Serial.println();
+  
+  report_summary();
+  delay(1800000);     /*pause time interval in dara reads    1000ms= 1s     delay 30min = 1800000 */  
+
+  
+
+  bmpData.print(bmp.readTemperature());
+  bmpData.print(", ");
+  bmpData.print(bmp.readPressure());
+  bmpData.print(", ");
+  bmpData.print(bmp.readAltitude(1003.0));  /*Adjust to local forecast  Chiayi: https://www.cwb.gov.tw/V8/C/W/OBS_County.html?ID=10020 
+  Taipei: https://www.cwb.gov.tw/V8/C/W/OBS_County.html?ID=63 */
+  bmpData.print(", ");
+  bmpData.print(muon_AND_counts);
+  bmpData.println();
+  bmpData.close();  //close file
+  
+  }
+}
+
+void trigger(){ // this function is called when the interrupt requested.
+  for (i=0; i<300; i++){  //it's about 500us
+    input_pin_status=(PIND & B01100000)/32;
+    switch (input_pin_status){
+      case 1:
+        in_ch1= 1;   break;
+      case 2:
+        in_ch2= 1;   break;
+      case 3:
+        in_AND= 1;   break;
+     }
+    }
+    muon_OR_counts++;
+    if (in_ch1== 1)  muon_ch1_counts++;
+    if (in_ch2== 1)  muon_ch2_counts++;
+    if (in_AND== 1)  muon_AND_counts++;
+    in_ch1= 0; in_ch2= 0; 
+    in_AND= 0;
+  
+}
+  
+   
+void report_summary(){
+  Serial.print("Trig:");  Serial.print(muon_OR_counts);
+  Serial.print(" Ch1: ");  Serial.print(muon_ch1_counts);
+  Serial.print(" Ch2: ");  Serial.print(muon_ch2_counts);
+  Serial.print(" AND: ");  Serial.print(muon_AND_counts);
+  //Serial.print(" Pressure: ");  Serial.print(bmp.readPressure());
+  muon_OR_counts= 0; 
+  muon_AND_counts= 0;    //if needing add and_counts, add remark"//"
+  muon_ch1_counts= 0; 
+  muon_ch2_counts= 0;
+}
+  
+  
